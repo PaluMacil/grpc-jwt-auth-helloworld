@@ -1,4 +1,4 @@
-module grpc-jwt-auth-helloworld
+module github.com/PaluMacil/grpc-jwt-auth-helloworld
 
 go 1.20
 

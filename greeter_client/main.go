@@ -9,10 +9,11 @@ import (
 	"os"
 	"time"
 
+	pb "github.com/PaluMacil/grpc-jwt-auth-helloworld/helloworld"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	pb "google.golang.org/grpc/examples/helloworld/helloworld"
 )
 
 const (
@@ -27,7 +28,30 @@ var (
 )
 
 type TokenSource struct {
-	oauth2.TokenSource
+	anonymousClient pb.TokenClient
+	refreshToken    string
+}
+
+func (ts *TokenSource) Token() (*oauth2.Token, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	r, err := ts.anonymousClient.Refresh(ctx, &pb.RefreshRequest{RefreshToken: ts.refreshToken})
+	if err != nil {
+		return nil, err
+	}
+	tokenString := r.GetAccessToken()
+	// parse refresh_token from new JWT
+	parser := &jwt.Parser{}
+	claims := jwt.MapClaims{}
+	_, _, err = parser.ParseUnverified(tokenString, &claims)
+	if err != nil {
+		return nil, err
+	}
+	ts.refreshToken = claims["refresh_token"].(string)
+	return &oauth2.Token{
+		AccessToken: tokenString,
+		TokenType:   "Bearer",
+	}, nil
 }
 
 func (ts *TokenSource) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
@@ -53,14 +77,14 @@ func main() {
 	}
 	tokenString := string(tokenBytes)
 
-	// Create a credentials object with the JWT
-	token := &oauth2.Token{
-		AccessToken: tokenString,
-		TokenType:   "Bearer",
+	// parse refresh_token from JWT
+	parser := &jwt.Parser{}
+	claims := jwt.MapClaims{}
+	_, _, err = parser.ParseUnverified(tokenString, &claims)
+	if err != nil {
+		log.Fatalf("failed to parse token: %v", err)
 	}
-	creds := &TokenSource{
-		oauth2.StaticTokenSource(token),
-	}
+	refreshToken := claims["refresh_token"].(string)
 
 	// Create a certificate
 	cert, err := os.ReadFile(certFile)
@@ -76,6 +100,20 @@ func main() {
 		RootCAs:            cp,
 	}
 	connCreds := credentials.NewTLS(config)
+
+	// Set up a connection to the anonymous server without authentication.
+	anonymousConn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(connCreds))
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	defer anonymousConn.Close()
+	anonymousClient := pb.NewTokenClient(anonymousConn)
+
+	// Create a TokenSource that uses RefreshToken method to get new tokens when needed.
+	creds := &TokenSource{
+		anonymousClient: anonymousClient,
+		refreshToken:    refreshToken,
+	}
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(connCreds), grpc.WithPerRPCCredentials(creds))
