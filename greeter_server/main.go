@@ -17,10 +17,9 @@ import (
 )
 
 const (
-	port                = 50051
-	expectedAccessToken = "EgTm8aUjGpW4bp7ChI1f2zm5muoShF+QkNHna3IVEQY="
-	certFile            = "cert.pem"
-	keyFile             = "key.pem"
+	port     = 50051
+	certFile = "cert.pem"
+	keyFile  = "key.pem"
 )
 
 func valid(md metadata.MD) bool {
@@ -31,7 +30,7 @@ func valid(md metadata.MD) bool {
 		log.Printf("Failed to decode signing key: %v", err)
 		return false
 	}
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	_, err = jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -41,11 +40,6 @@ func valid(md metadata.MD) bool {
 	if err != nil {
 		log.Printf("Failed to parse token: %v", err)
 		return false
-	}
-
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		accessToken, _ := claims["access_token"].(string)
-		return accessToken == expectedAccessToken
 	}
 
 	return false

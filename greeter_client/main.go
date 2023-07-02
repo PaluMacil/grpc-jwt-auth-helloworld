@@ -11,15 +11,17 @@ import (
 
 	"github.com/PaluMacil/grpc-jwt-auth-helloworld/pb"
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 const (
-	defaultName = "world"
-	tokenPath   = "token.jwt"
-	certFile    = "cert.pem"
+	defaultName            = "world"
+	tokenPath              = "token.jwt"
+	certFile               = "cert.pem"
+	serverAddr             = "localhost:50051"
+	contextTimeoutDuration = time.Second
+	authorizationBearer    = "Bearer"
 )
 
 var (
@@ -27,70 +29,64 @@ var (
 	name = flag.String("name", defaultName, "Name to greet")
 )
 
-type TokenSource struct {
-	anonymousClient pb.TokenClient
-	refreshToken    string
-}
-
-func (ts *TokenSource) Token() (*oauth2.Token, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	r, err := ts.anonymousClient.Refresh(ctx, &pb.RefreshRequest{RefreshToken: ts.refreshToken})
-	if err != nil {
-		return nil, err
-	}
-	tokenString := r.GetAccessToken()
-	// parse refresh_token from new JWT
-	parser := &jwt.Parser{}
-	claims := jwt.MapClaims{}
-	_, _, err = parser.ParseUnverified(tokenString, &claims)
-	if err != nil {
-		return nil, err
-	}
-	ts.refreshToken = claims["refresh_token"].(string)
-	return &oauth2.Token{
-		AccessToken: tokenString,
-		TokenType:   "Bearer",
-	}, nil
-}
-
-func (ts *TokenSource) GetRequestMetadata(ctx context.Context, in ...string) (map[string]string, error) {
-	token, err := ts.Token()
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{
-		"authorization": "Bearer " + token.AccessToken,
-	}, nil
-}
-
-func (ts *TokenSource) RequireTransportSecurity() bool {
-	return true
-}
-
 func main() {
 	flag.Parse()
+	cachedToken := readCachedToken()
+	creds, anonymousConn := createTokenSource(cachedToken)
+	defer anonymousConn.Close()
+	c, conn := createGreeterClient(creds)
+	defer conn.Close()
+	sendAndReceiveGreetings(c)
+}
 
+func readCachedToken() string {
 	tokenBytes, err := os.ReadFile(tokenPath)
 	if err != nil {
 		log.Fatalf("could not read %s: %s", tokenPath, err)
 	}
-	tokenString := string(tokenBytes)
+	return string(tokenBytes)
+}
 
-	// parse refresh_token from JWT
+func parseJWTToken(tokenString string) jwt.MapClaims {
 	parser := &jwt.Parser{}
 	claims := jwt.MapClaims{}
-	_, _, err = parser.ParseUnverified(tokenString, &claims)
+	_, _, err := parser.ParseUnverified(tokenString, &claims)
 	if err != nil {
 		log.Fatalf("failed to parse token: %v", err)
 	}
-	refreshToken := claims["refresh_token"].(string)
+	return claims
+}
 
-	// Create a certificate
-	cert, err := os.ReadFile(certFile)
+func createTokenSource(cachedTokenString string) (*TokenSource, *grpc.ClientConn) {
+	cachedClaims := parseJWTToken(cachedTokenString)
+	anonymousClient, anonymousConn := createAnonymousClient()
+	refreshToken, _ := cachedClaims["refresh_token"].(string)
+	exp, _ := cachedClaims["exp"].(float64)
+
+	return &TokenSource{
+		anonymousClient: anonymousClient,
+		accessToken:     cachedTokenString,
+		refreshToken:    refreshToken,
+		expiry:          time.Unix(int64(exp), 0),
+	}, anonymousConn
+}
+
+func createAnonymousClient() (pb.TokenClient, *grpc.ClientConn) {
+	anonymousConn := createAnonymousConnection()
+	return pb.NewTokenClient(anonymousConn), anonymousConn
+}
+
+func createAnonymousConnection() *grpc.ClientConn {
+	connCreds := createConnectionCredentials()
+	anonymousConn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(connCreds))
 	if err != nil {
-		log.Fatalf("could not load tls cert: %s", err)
+		log.Fatalf("did not connect: %v", err)
 	}
+	return anonymousConn
+}
+
+func createConnectionCredentials() credentials.TransportCredentials {
+	cert := readCertificate()
 	cp := x509.NewCertPool()
 	if !cp.AppendCertsFromPEM(cert) {
 		log.Fatalf("failed to append certificates")
@@ -98,32 +94,28 @@ func main() {
 	config := &tls.Config{
 		RootCAs: cp,
 	}
-	connCreds := credentials.NewTLS(config)
+	return credentials.NewTLS(config)
+}
 
-	// Set up a connection to the anonymous server without authentication.
-	anonymousConn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(connCreds))
+func readCertificate() []byte {
+	cert, err := os.ReadFile(certFile)
+	if err != nil {
+		log.Fatalf("could not load tls cert: %s", err)
+	}
+	return cert
+}
+
+func createGreeterClient(creds *TokenSource) (pb.GreeterClient, *grpc.ClientConn) {
+	connCreds := createConnectionCredentials()
+	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(connCreds), grpc.WithPerRPCCredentials(creds))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
-	defer anonymousConn.Close()
-	anonymousClient := pb.NewTokenClient(anonymousConn)
+	return pb.NewGreeterClient(conn), conn
+}
 
-	// Create a TokenSource that uses RefreshToken method to get new tokens when needed.
-	creds := &TokenSource{
-		anonymousClient: anonymousClient,
-		refreshToken:    refreshToken,
-	}
-
-	// Set up a connection to the server.
-	conn, err := grpc.Dial(*addr, grpc.WithTransportCredentials(connCreds), grpc.WithPerRPCCredentials(creds))
-	if err != nil {
-		log.Fatalf("did not connect: %v", err)
-	}
-	defer conn.Close()
-	c := pb.NewGreeterClient(conn)
-
-	// Contact the server and print out its response.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+func sendAndReceiveGreetings(c pb.GreeterClient) {
+	ctx, cancel := context.WithTimeout(context.Background(), contextTimeoutDuration)
 	defer cancel()
 	r, err := c.SayHello(ctx, &pb.HelloRequest{Name: *name})
 	if err != nil {

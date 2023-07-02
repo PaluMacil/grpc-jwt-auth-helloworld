@@ -8,12 +8,11 @@ import (
 )
 
 const (
-	refreshToken = "LlXuNq0L2MvV651ybbsVqdlAxY2bmyefY1O0xMirqIw="
-	accessToken  = "EgTm8aUjGpW4bp7ChI1f2zm5muoShF+QkNHna3IVEQY="
+	refreshToken      = "LlXuNq0L2MvV651ybbsVqdlAxY2bmyefY1O0xMirqIw="
+	encodedSigningKey = "L7joifscCNr/gr9QEvcD86lp5VO0PPx2IDDRBo5CetA="
 )
 
 type CustomClaims struct {
-	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	jwt.RegisteredClaims
 }
@@ -27,17 +26,17 @@ func OneDayAgo() time.Time {
 }
 
 func GenerateToken(expires time.Time) string {
-	signingKey, _ := base64.StdEncoding.DecodeString("L7joifscCNr/gr9QEvcD86lp5VO0PPx2IDDRBo5CetA=")
+	signingKey, _ := base64.StdEncoding.DecodeString(encodedSigningKey)
+	user := "somebody"
 
 	claims := CustomClaims{
-		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expires),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "the_server",
-			Subject:   "somebody",
+			Subject:   user,
 			Audience:  []string{"the_client"},
 		},
 	}
@@ -48,5 +47,6 @@ func GenerateToken(expires time.Time) string {
 	if err != nil {
 		log.Fatalf("Failed to sign token: %v", err)
 	}
+	log.Printf("generated new token for %s expiring %v", user, expires)
 	return tokenString
 }

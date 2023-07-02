@@ -1,6 +1,9 @@
 # GRPC JWT Auth Example
 
-Quick example of JWT Auth in GRPC. It requires some touch-up. A fake database for users instead of hardcoded strings would also be nice.
+Quick example of JWT Auth in GRPC. It oversimplifies a couple things. First, it stores the refresh token in the access 
+token which would defeat the purpose of having a long lived and short lived token, and the hmac key, user, and a couple 
+other things are hard coded. Also, when it refreshes the token, it doesn't write the new one to disk. However, this 
+provided me with a quick experiment into using JWT in GRPC auth.
 
 ## Prerequisites
 
