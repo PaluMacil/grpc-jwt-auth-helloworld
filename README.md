@@ -1,14 +1,17 @@
 # GRPC JWT Auth Example
 
-Quick example of JWT Auth in GRPC. It requires some touch-up. For instance, the server doesn't implement the refresh endpoint. I should also talk more here about what the generator scripts do and add a flag to generate an expired token so that I can demo the code path that refreshes the token.
+Quick example of JWT Auth in GRPC. It requires some touch-up. A fake database for users instead of hardcoded strings would also be nice.
 
 ## Prerequisites
+
+Installing with `go install` requires your GOBIN to be on your path for execution of the command later. For go and protobuf, snap can work on Ubuntu and Windows via WSL2, but it's worth looking into the official websites and considering the options.
 
 ```bash
 sudo snap install go --classic
 sudo snap install protobuf --classic
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
+go install github.com/go-task/task/v3/cmd/task@v3.27.1
 ```
 
 Add to your .bashrc
@@ -17,13 +20,44 @@ Add to your .bashrc
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-## Run
+## Build
 
 ```bash
-go run .\certgen\main.go
-go run .\tokengen\main.go
-go run .\greeter_server\main.go
-go run .\greeter_client\main.go
+task build
+```
+
+## Run
+
+The token generator creates a new token or an expired one and writes it to standard out for viewing purposes as well as
+to disk to simulate it being a token that the client has already stored in the past via some sort of login process. It
+contains a refresh token that the server considers to be valid for creating a new token with a day till expiration.
+
+```bash
+task newtoken
+```
+
+or
+
+```bash
+task expiredtoken
+```
+
+Generate a cert:
+
+```bash
+task cert
+```
+
+Run server (blocking)
+
+```bash
+task serve
+```
+
+Run client and greet:
+
+```bash
+task greet
 ```
 
 ## Regenerate
@@ -31,7 +65,7 @@ go run .\greeter_client\main.go
 ```bash
 protoc --go_out=. --go_opt=paths=source_relative \
     --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-    helloworld/helloworld.proto
+    pb/helloworld.proto
 ```
 
 ## Troubleshooting

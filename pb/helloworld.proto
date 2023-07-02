@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-option go_package = "google.golang.org/grpc/examples/helloworld/helloworld";
+option go_package = "github.com/PaluMacil/grpc-jwt-auth-helloworld/pb";
 
-package helloworld;
+package pb;
 
 // The greeting service definition.
 service Greeter {

@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	pb "github.com/PaluMacil/grpc-jwt-auth-helloworld/helloworld"
+	"github.com/PaluMacil/grpc-jwt-auth-helloworld/pb"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
@@ -96,8 +96,7 @@ func main() {
 		log.Fatalf("failed to append certificates")
 	}
 	config := &tls.Config{
-		InsecureSkipVerify: true, // do not use in production!
-		RootCAs:            cp,
+		RootCAs: cp,
 	}
 	connCreds := credentials.NewTLS(config)
 

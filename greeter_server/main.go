@@ -2,10 +2,10 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"github.com/PaluMacil/grpc-jwt-auth-helloworld/pb"
 	"google.golang.org/grpc/credentials"
 	"log"
 	"net"
@@ -13,7 +13,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
-	pb "google.golang.org/grpc/examples/helloworld/helloworld"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -24,28 +23,14 @@ const (
 	keyFile             = "key.pem"
 )
 
-type server struct {
-	pb.UnimplementedGreeterServer
-}
-
-func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, fmt.Errorf("missing metadata")
-	}
-
-	if !valid(md) {
-		return nil, fmt.Errorf("unauthorized")
-	}
-
-	log.Printf("Received: %v", in.GetName())
-	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
-}
-
 func valid(md metadata.MD) bool {
 	tokenString := md.Get("authorization")[0]
 	tokenString = strings.TrimPrefix(tokenString, "Bearer ")
-	signingKey, _ := base64.StdEncoding.DecodeString("L7joifscCNr/gr9QEvcD86lp5VO0PPx2IDDRBo5CetA=")
+	signingKey, err := base64.StdEncoding.DecodeString("L7joifscCNr/gr9QEvcD86lp5VO0PPx2IDDRBo5CetA=")
+	if err != nil {
+		log.Printf("Failed to decode signing key: %v", err)
+		return false
+	}
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -79,11 +64,12 @@ func main() {
 		log.Fatalf("could not load server key pair: %s", err)
 	}
 
-	// Create a gRPC server object
+	// Create gRPC servers
 	s := grpc.NewServer(grpc.Creds(certificate))
-	pb.RegisterGreeterServer(s, &server{})
-	log.Printf("server listening at %v", lis.Addr())
+	pb.RegisterGreeterServer(s, &greeterServer{})
+	pb.RegisterTokenServer(s, &tokenServer{})
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+	log.Printf("server listening at %v", lis.Addr())
 }

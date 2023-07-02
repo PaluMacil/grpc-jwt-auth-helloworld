@@ -1,13 +1,10 @@
-package main
+package tokengen
 
 import (
 	"encoding/base64"
-	"fmt"
-	"log"
-	"os"
-	"time"
-
 	"github.com/golang-jwt/jwt/v5"
+	"log"
+	"time"
 )
 
 const (
@@ -21,14 +18,22 @@ type CustomClaims struct {
 	jwt.RegisteredClaims
 }
 
-func main() {
+func OneDayFromNow() time.Time {
+	return time.Now().Add(24 * time.Hour)
+}
+
+func OneDayAgo() time.Time {
+	return time.Now().Add(-24 * time.Hour)
+}
+
+func GenerateToken(expires time.Time) string {
 	signingKey, _ := base64.StdEncoding.DecodeString("L7joifscCNr/gr9QEvcD86lp5VO0PPx2IDDRBo5CetA=")
 
 	claims := CustomClaims{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(expires),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "the_server",
@@ -43,7 +48,5 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to sign token: %v", err)
 	}
-
-	os.WriteFile("token.jwt", []byte(tokenString), 0666)
-	fmt.Println(tokenString)
+	return tokenString
 }
